@@ -1,0 +1,134 @@
+## starting point a RHEL VM that is healthy and has SSH enabled
+
+#some AZ CLI vars, run this each time you start a new terminal (it will happen a lot in this part of the procedure)
+export MSYS_NO_PATHCONV=1
+subscriptionName=AZURE-FG-AGO-SANDBOX1-A-G-1S3G-WE
+appRgName='RHELApp'
+lzRgName=RedHatUpgrade06
+regionName=westeurope
+bastionName='bas-RHELUpgrade'
+vmName='ago-devl4vlwapl01'
+adminUser=azureuser
+upgradeDiskName=upgradeDisk
+
+
+az account set --subscription $subscriptionName
+
+vmID=$(az resource list --name $vmName --query "[].id" -o tsv)
+#add a temp disk to the VM where the image will bestored.  the disk needs to be created only once and can move to other VM's.  if you reuse the disk remove the --new part
+az vm disk attach \
+    --resource-group $appRgName \
+    --vm-name $vmName \
+    --name $upgradeDiskName \
+    --size-gb 128 \
+    --new \
+    --sku Premium_LRS 
+
+#log on to the linux VM (using bastion)
+az network bastion ssh --name $bastionName --resource-group $lzRgName --target-resource-id $vmID --auth-type "ssh-key" --username $adminUser --ssh-key "C:\Users\wgevaert\.ssh\id_rsa"
+
+#Now you are in linux
+sudo -s
+
+
+
+#prepare the disk (one time, we will reuse the disk on all VM's)
+#identify the new disk
+ls /dev/sd* 
+#partition the new disk
+fdisk /dev/sdd #(make sure its the correct one here)
+
+#in the menu select the following
+#n, p, 1, , , w
+
+
+#identify the new partition (is usualy the same as the disk but with a 1 attached to its name)
+ls /dev/sd* 
+#set a file system on it
+mkfs.xfs /dev/sdd1
+## end of one time disk setup, you can reuse the disk on oter VM's
+
+
+#Mount the disk
+mkdir /mnt/migtemp
+mount /dev/sdc1 /mnt/migtemp #make sure to munt the rigt one here
+
+#get the ISO on the temp disk
+cd /mnt/migtemp
+curl -O https://sapermanentwg.blob.core.windows.net/public/rhel-9.2-beta-x86_64-dvd.iso
+
+# mount the ISO (it will be read only)
+mkdir /media/rhel92iso
+mount -o loop /mnt/migtemp/rhel-9.2-beta-x86_64-dvd.iso /media/rhel92iso
+
+head -n1 /media/rhel92iso/.discinfo
+#antw: 1678094074.375089
+
+# Modify teh repo file
+##copy the repo file
+cp /media/rhel92iso/media.repo /etc/yum.repos.d/rhel92.repo
+chmod 644 /etc/yum.repos.d/rhel92.repo
+nano /etc/yum.repos.d/rhel92.repo
+##replace the existing text in the rhel92.repo file with this one and save
+[dvd-BaseOS-92]
+name=DVD for RHEL - BaseOS prepped for AGO
+baseurl=file:///media/rhel92iso/BaseOS
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+
+[dvd-AppStream-92]
+name=DVD for RHEL - AppStream prepped for AGO
+baseurl=file:///media/rhel92iso/AppStream
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+
+###########################################################
+
+# enable the repo
+#yum clean all (I dont think we need to yum anything anymore since we use dnf)
+dnf clean all
+#check if our images are listed, you should see the immage as a repo
+#yum repolist enabled
+dnf repolist enabled
+# test it (the command beloww dissables all  repo's execept our new ones) you wil; get the question "is this ok" all we want is to see that the repo works, you don't have to actualy install git.
+dnf --disablerepo="*" --enablerepo="*-92" install git
+
+##Optional to fix certificate issue's in the MSFT Repo
+dnf update -y --disablerepo='*' --enablerepo='*microsoft*'
+
+# execute the update to 9.2 it will ask you to errase the kernel, that's fine as long as it also installe a new one.
+dnf update --allowerasing -y
+
+shutdown -h now
+
+#delocate the VM & en start the VM again (watch the console for progres)
+az vm deallocate --name $vmName --resource-group $appRgName
+az vm start --name $vmName --resource-group $appRgName
+
+#log on to the linux VM (using bastion)
+
+##check linux version
+hostnamectl
+
+# [root@RHELVM01 azureuser]# hostnamectl
+#  Static hostname: RHELVM01
+#        Icon name: computer-vm
+#          Chassis: vm 
+#       Machine ID: 59ac24faa0c04e598cf71b0fd0cdbad6
+#          Boot ID: 15bbd0a73b364fe0a669d17f103ff463
+#   Virtualization: microsoft
+# Operating System: Red Hat Enterprise Linux 9.2 Beta (Plow)
+#      CPE OS Name: cpe:/o:redhat:enterprise_linux:9::baseos
+#           Kernel: Linux 5.14.0-283.el9.x86_64
+#     Architecture: x86-64
+#  Hardware Vendor: Microsoft Corporation
+#   Hardware Model: Virtual Machine
+# Firmware Version: Hyper-V UEFI Release v4.1
+# [root@RHELVM01 azureuser]# 
+
+#check the vm see if you are happy with the upgrade... then shutdown the VM
+shutdown -h now
+#remove the update disk from the vm
+az vm disk detach --name $upgradeDiskName --resource-group $appRgName --vm-name $vmName

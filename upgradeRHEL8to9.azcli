@@ -1,0 +1,157 @@
+## starting point a RHEL VM that is healthy and has SSH enabled
+
+#some AZ CLI vars, run this each time you start a new terminal (it will happen a lot in this part of the procedure)
+export MSYS_NO_PATHCONV=1
+subscriptionName=AZURE-FG-AGO-SANDBOX1-A-G-1S3G-WE
+appRgName='RHELApp'
+lzRgName=RedHatUpgrade06
+regionName=westeurope
+bastionName='bas-RHELUpgrade'
+vmName='ago-devl4vlwapl01'
+adminUser=azureuser
+bootdiagStorage=sabootdiagconsole2165
+vmID=$(az resource list --name $vmName --query "[].id" -o tsv)
+
+az account set --subscription $subscriptionName
+
+#create a storage account required for boot diagnostics
+az storage account create \
+    --name $bootdiagStorage \
+    --resource-group $appRgName \
+    --location $regionName \
+    --sku Standard_LRS
+
+#configure boot diagnostics on all VM's in the Resource Group, you need this for serial console access
+az vm boot-diagnostics enable \
+  --storage $bootdiagStorage \
+  --ids $(az vm list --resource-group $appRgName --query "[].id" -o tsv)
+
+#add a temp disk to the VM where the image will bestored.  the disk needs to be created only once and can move to other VM's
+  
+
+#setup bastion CLI on your PC, you need to execute this only once on your PC
+az extension add --name bastion
+az extension add --name ssh
+
+#log on to the linux VM (using bastion)
+az network bastion ssh --name $bastionName --resource-group $lzRgName --target-resource-id $vmID --auth-type "ssh-key" --username $adminUser --ssh-key "C:\Users\wgevaert\.ssh\id_rsa"
+
+#Now you are in linux
+sudo -s
+
+##check linux version
+hostnamectl
+
+#PART 1 Upgrade to RHL 9.0##########################################
+# check RHEL subscription
+subscription-manager list --installed
+
+# Cleanup RHEL subscription if it's no good
+subscription-manager remove --all
+subscription-manager unregister
+subscription-manager clean
+
+#Re-register the system (A RHEL account is required for this):
+subscription-manager register
+subscription-manager refresh
+
+#Search for the Pool ID that has access to beta:
+subscription-manager list --available
+
+#Attach the subscription (the pool id is given by the previous command):
+subscription-manager attach --pool=2c94dc42874374ed01875a72df055c22
+subscription-manager attach --pool=2c94e06b8743743101875a7304772e4f
+
+# add repos
+subscription-manager repos --enable rhel-8-for-x86_64-baseos-rpms --enable rhel-8-for-x86_64-appstream-rpms
+
+#update to latest 8.x
+dnf update -y
+shutdown -r now
+
+#close the bash session & get a coffee, then open a new terminal, launch the environment variables again and connect to the VM using the bastion command previously used
+#Now you are in linux
+sudo -s
+
+##check linux version
+hostnamectl
+
+# prepare upgrade to 9.0
+##install leapp
+dnf install leapp* -y
+dnf install leapp-upgrade #probably not required
+dnf install 'dnf-command(versionlock)' -y
+dnf versionlock clear
+
+# comment this line out AllowZoneDrifting=yes
+nano /etc/firewalld/firewalld.conf
+
+# Disable SELinux or set it in permissive mode
+setenforce 0
+
+# check the upgrade check well here and resolve stuff if required
+leapp preupgrade --target 9.0
+
+#check for errors & warnings
+shutdown -r now
+
+#close the bash session & get bathroom break, then open a new terminal, launch the environment variables again and connect to the VM using the bastion command previously used
+#Now you are in linux
+sudo -s
+
+#Cleanup dnf and cache :
+dnf clean all
+rm -r -f /var/cache/dnf
+
+#upgrade to 9.0
+leapp upgrade --target 9.0
+
+#reboot
+shutdown -h now
+#close the bash session & get another break, then open a new terminal, launch the environment variables again and connect to the VM using the bastion command previously used
+#connect to the serial console (using the GUI) to verfy the system is completly stopped (or actialy take that 5 mins break)
+
+#these steps are optional, in case your VM hangs..
+az vm stop --name $vmName --resource-group $appRgName
+az vm deallocate --name $vmName --resource-group $appRgName
+
+# now start the VM again, you can watch the serial console to see if things are ready..
+az vm start --name $vmName --resource-group $appRgName
+
+az network bastion ssh --name $bastionName --resource-group $lzRgName --target-resource-id $vmID --auth-type "ssh-key" --username $adminUser --ssh-key "C:\Users\wgevaert\.ssh\id_rsa"
+
+#Now you are in linux
+sudo -s
+
+##check linux version, you should be on 9.0
+hostnamectl
+
+# [root@RHELVM01 azureuser]# hostnamectl, should give something ike this
+#  Static hostname: RHELVM01
+#        Icon name: computer-vm
+#          Chassis: vm 🖴
+#       Machine ID: 59ac24faa0c04e598cf71b0fd0cdbad6
+#          Boot ID: 978fcafc4fe147828d9a6b17f5dae316
+#   Virtualization: microsoft
+# Operating System: Red Hat Enterprise Linux 9.0 (Plow)
+#      CPE OS Name: cpe:/o:redhat:enterprise_linux:9::baseos
+#           Kernel: Linux 5.14.0-70.30.1.el9_0.x86_64
+#     Architecture: x86-64
+#  Hardware Vendor: Microsoft Corporation
+#   Hardware Model: Virtual Machine
+
+#check that only redhat 9 repos are visible
+dnf repolist enabled
+
+#cleanup old repos (check actual output for repo's to remove)
+yum-config-manager --disable rhui-rhel-8-for-x86_64-baseos-rhui-rpms
+yum-config-manager --disable rhui-rhel-8-for-x86_64-appstream-rhui-rpms
+yum-config-manager --disable rhui-microsoft-azure-rhel8
+yum-config-manager --disable rhui-codeready-builder-for-rhel-8-x86_64-rhui-rpms
+yum-config-manager --disable rhel-8-for-x86_64-baseos-rpms 
+yum-config-manager --disable rhel-8-for-x86_64-appstream-rpms
+
+# subscription-manager repos --disable rhel-8-for-x86_64-baseos-rpms --disable rhel-8-for-x86_64-appstream-rpms # alternative way, should not be required
+
+#check that only redhat 9 repos are visible now
+dnf repolist enabled
