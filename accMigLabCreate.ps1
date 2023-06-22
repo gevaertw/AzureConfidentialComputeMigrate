@@ -1,3 +1,5 @@
+#script creates a lab environment to demonstrate the script
+
 $subscriptionName = "XXXX"
 $rgName = "rg-dev02-myexistingVMs"
 $regionName = "northeurope"
