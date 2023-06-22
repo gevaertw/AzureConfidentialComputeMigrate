@@ -11,5 +11,7 @@ This script is written to migrate linux VM's,  It assumes that you don't need to
 - Have the latest AZCLI in your PC
 - Have AZCOPY installed on your PC
 
+#
+
 # Support
 Unsupported script, not by me, not by my past, present or future employer.  Use at your own risk.
