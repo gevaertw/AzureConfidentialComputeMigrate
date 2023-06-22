@@ -1,4 +1,4 @@
-$subscriptionName = "ME-MngEnvMCAP376337-wgevaert-1"
+$subscriptionName = "XXXX"
 $rgName = "rg-dev02-myexistingVMs"
 $regionName = "northeurope"
 $tagList = @("CostCenter=AccmigExperiment", "Environment=DEV01")
@@ -37,7 +37,7 @@ az network vnet subnet create `
     --resource-group $rgName `
     --vnet-name $vNetName `
     --address-prefixes $vmAddressPrefix
-    
+
 <# UNCOMMENT THIS BLOCK IF YOU WANT A BASTION TO BE CREATED
 #create bastion subnet in vnet
 az network vnet subnet create `

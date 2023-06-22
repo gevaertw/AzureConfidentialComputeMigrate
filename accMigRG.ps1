@@ -26,11 +26,11 @@ $regionName = "northeurope"
 $tagList = @("CostCenter=AccmigExperiment", "Environment=DEV01")
 
 # In what subscription & resource group can you find the VM that needs to become confidential
-$sourceSubscriptionName = "ME-MngEnvMCAP376337-wgevaert-1"
+$sourceSubscriptionName = "xxx"
 $sourceRGName = "rg-dev02-myexistingVMs"
 
 # In what subscription & resource groups will you land the confidential VM (its advised that at least different RG's are used.)
-$destinationSubscriptionName = "ME-MngEnvMCAP376337-wgevaert-2"
+$destinationSubscriptionName = "xxx"
 $destinationVMRGName = "rg-dev02-myNewConfidentialVM"
 $destinationNetworkRGName = "rg-dev02-myNewConfidentialNetwork"
 $destinationImagesRGName = "rg-dev02-myNewConfidentialImages"
@@ -101,7 +101,9 @@ az network vnet subnet create `
     --vnet-name $destinationvNetName `
     --address-prefixes $vmConfidentialAddressPrefix
 
-<# Write-Host -ForegroundColor Green "create bastion subnet in vnet (the name is fixed, you cannot change it)"
+<# UNCOMMENT THIS BLOCK IF YOU WANT A BASTION TO BE CREATED
+
+Write-Host -ForegroundColor Green "create bastion subnet in vnet (the name is fixed, you cannot change it)"
 az network vnet subnet create `
     --name AzureBastionSubnet `
     --resource-group $destinationNetworkRGName `
@@ -125,7 +127,9 @@ az network bastion create `
     --tags $tagList `
     --enable-tunneling true `
     --public-ip-address $bastionPublicIPName `
-    --sku Standard #>
+    --sku Standard 
+    
+#>
 
 Write-Host -ForegroundColor Green "Create boot diagnostics storage account"
 az storage account create `
