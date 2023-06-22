@@ -180,5 +180,3 @@ az vm disk attach `
     --sku Standard_LRS `
     --new
 
-
-#encrypt the data disk
